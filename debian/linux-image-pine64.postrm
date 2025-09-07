@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+case "$1" in
+  remove|purge)
+    rm -rf /boot/Image.gz /boot/allwinner /boot/*.dtb
+    ;;
+esac
+#DEBHELPER#
+exit 0
+

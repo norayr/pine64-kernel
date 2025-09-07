@@ -1,5 +1,11 @@
 pine64-linux (6.12.29-1) unstable; urgency=medium
 
+  * 6.12.29 is now building.
+
+ -- Norayr Chilingarian <norayr@arnet.am>  Mon, 8 Sep 2025 03:00:00 +0400
+
+pine64-linux (6.12.29-1) unstable; urgency=medium
+
   * Rebased to 6.12.29
 
  -- Merlijn Wajer <merlijn@wizzup.org>  Mon, 19 May 2025 17:55:44 +0200

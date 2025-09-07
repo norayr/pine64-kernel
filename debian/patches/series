@@ -121,5 +121,5 @@ debian/0120-wireless-Add-Debian-wireless-regdb-certificates.patch
 wireless/0121-Revert-wifi-rtw88-station-mode-only-for-SDIO-chips.patch
 wireless/0122-rtw88-fix-AP-mode-for-SDIO-cards.patch
 maemo/0170-battery_level_hack.patch
-maemo/0171-maemo-quirks.patch
-maemo/0172-maemo-config-adaptation.patch
+# maemo/0171-maemo-quirks.patch
+# maemo/0172-maemo-config-adaptation.patch

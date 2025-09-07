@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+export INITRD=No
+case "$1" in
+  configure)
+    version="$(basename /usr/lib/linux-image-pine64/vmlinuz-* | sed 's/^vmlinuz-//')"
+    depmod "$version" || true
+    mkdir -p /boot/allwinner
+    rm -f /boot/Image.gz /boot/*.dtb
+    cp -f "/usr/lib/linux-image-pine64/vmlinuz-$version" /boot/Image.gz
+    cp -f /usr/lib/linux-image-pine64/allwinner/sun50i-a64-pinetab*.dtb /boot/allwinner 2>/dev/null || true
+    cp -f /usr/lib/linux-image-pine64/allwinner/sun50i-a64-pinephone*.dtb /boot/allwinner 2>/dev/null || true
+    ;;
+esac
+#DEBHELPER#
+exit 0
+
