@@ -1,32 +1,30 @@
 #!/usr/bin/make -f
 
+export DH_VERBOSE=1
+export ARCH=arm64
+
 DEV    = pinephone
-ARCH   = arm64
-
-# device trees we want packaged into linux-image-pine64
 DTB    = \
-        allwinner/sun50i-a64-pinephone-1.0.dtb \
-        allwinner/sun50i-a64-pinephone-1.1.dtb \
-        allwinner/sun50i-a64-pinephone-1.2.dtb \
-        allwinner/sun50i-a64-pinetab.dtb \
-        allwinner/sun50i-a64-pinetab-early-adopter.dtb
+  allwinner/sun50i-a64-pinephone-1.0.dtb \
+  allwinner/sun50i-a64-pinephone-1.1.dtb \
+  allwinner/sun50i-a64-pinephone-1.2.dtb \
+  allwinner/sun50i-a64-pinetab.dtb \
+  allwinner/sun50i-a64-pinetab-early-adopter.dtb
 
-# parallel build
+# Parallel build from DEB_BUILD_OPTIONS=parallel=N
 ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
-  NUMJOBS     = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
-  BUILD_FLAGS += -j$(NUMJOBS)
+  NUMJOBS := $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  export MAKEFLAGS += -j$(NUMJOBS)
 endif
 
-# cross
+# Cross
 ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_TARGET_MULTIARCH))
-  BUILD_FLAGS += CROSS_COMPILE=$(DEB_TARGET_MULTIARCH)-
+  export CROSS_COMPILE=$(DEB_TARGET_MULTIARCH)-
 endif
 
-# --- Kconfig customization (instead of 0172-maemo-config-adaptation.patch) ---
+# --- Kconfig customization (replaces 0172 patch) ---
 define apply-kconfig
-	# starting from upstream arm64 defconfig
-	$(MAKE) ARCH=$(ARCH) defconfig
-	# enabling the symbols that 0172 changed (built-in = y)
+	$(MAKE) defconfig
 	./scripts/config --file .config \
 	  --enable  CONFIG_MTD \
 	  --enable  CONFIG_MTD_DATAFLASH \
@@ -38,28 +36,52 @@ define apply-kconfig
 	  --enable  CONFIG_USB_CONFIGFS \
 	  --enable  CONFIG_EXT4_FS \
 	  --enable  CONFIG_BTRFS_FS
-	# resolving deps / defaults
-	$(MAKE) ARCH=$(ARCH) olddefconfig
+	$(MAKE) olddefconfig
 endef
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------
 
-build-arch:
+# Default debhelper sequence
+%:
+	dh $@
+
+override_dh_auto_configure:
 	$(call apply-kconfig)
-	$(MAKE) ARCH=$(ARCH) $(BUILD_FLAGS) Image.gz modules dtbs
 
-binary-arch:
-ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_TARGET_MULTIARCH))
-	$(MAKE) ARCH=$(ARCH) DEV=$(DEV) DTB="$(DTB)" $(BUILD_FLAGS) intdeb-pkg
-else
-	$(MAKE) ARCH=$(ARCH) $(BUILD_FLAGS) HOSTCC=$(DEB_TARGET_MULTIARCH)-gcc modules
-	$(MAKE) ARCH=$(ARCH) DEV=$(DEV) DTB="$(DTB)" $(BUILD_FLAGS) \
-		HOSTCC=$(DEB_TARGET_MULTIARCH)-gcc intdeb-pkg
-endif
+override_dh_auto_build:
+	$(MAKE) Image.gz modules dtbs
+
+override_dh_auto_install:
+	# Install kernel headers into linux-headers-pine64
+	$(MAKE) headers_install INSTALL_HDR_PATH=$(CURDIR)/debian/linux-headers-pine64/usr
+
+	# Install modules into linux-image-pine64
+	$(MAKE) modules_install INSTALL_MOD_PATH=$(CURDIR)/debian/linux-image-pine64
+
+	# Stage the kernel image and DTBs into linux-image-pine64
+	install -d $(CURDIR)/debian/linux-image-pine64/boot
+	install -m 0644 arch/arm64/boot/Image.gz $(CURDIR)/debian/linux-image-pine64/boot/Image.gz
+
+	# Put DTBs under /usr/lib/linux-image-pine64/allwinner (matches your postinst)
+	install -d $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner
+	set -e; \
+	for d in $(DTB); do \
+	  install -m 0644 arch/arm64/boot/dts/$$d \
+	    $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner/; \
+	done
+
+override_dh_strip:
+	# Keep debug symbols (you have a -dbg package declared). If you later want split,
+	# you can enable automatic -dbgsym handling here.
+	dh_strip --no-automatic-dbgsym
+
+override_dh_shlibdeps:
+	# Kernel image packages usually don’t need shlibdeps
+	true
+
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
 
 clean:
-	rm -rf debian/*tmp debian/files
+	dh_clean
 	$(MAKE) clean
-
-build: build-arch
-binary: binary-arch
 
