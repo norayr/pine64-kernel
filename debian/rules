@@ -11,27 +11,20 @@ DTB    = \
   allwinner/sun50i-a64-pinetab.dtb \
   allwinner/sun50i-a64-pinetab-early-adopter.dtb
 
-# parallel build from DEB_BUILD_OPTIONS=parallel=N
+# Parallel build from DEB_BUILD_OPTIONS=parallel=N
 ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
   NUMJOBS := $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
   export MAKEFLAGS += -j$(NUMJOBS)
 endif
 
-# cross
+# Cross
 ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_TARGET_MULTIARCH))
   export CROSS_COMPILE=$(DEB_TARGET_MULTIARCH)-
 endif
 
-# --- Kconfig: start from our known-good config, then normalize & tweak ---
+# --- Kconfig customization (replaces 0172 patch) ---
 define apply-kconfig
-	# 1) Seed with Gentoo's working PinePhone config (6.13.2)
-	cp -v $(CURDIR)/debian/config_inky .config
-
-	# 2) Normalize to the *current source* (6.12.29): drops unknown 6.13 symbols,
-	#    fills in any renamed/moved options with kernel defaults.
-	$(MAKE) olddefconfig
-
-	# 3) Apply your extra toggles (kept from your rules)
+	$(MAKE) defconfig
 	./scripts/config --file .config \
 	  --enable  CONFIG_MTD \
 	  --enable  CONFIG_MTD_DATAFLASH \
@@ -43,11 +36,9 @@ define apply-kconfig
 	  --enable  CONFIG_USB_CONFIGFS \
 	  --enable  CONFIG_EXT4_FS \
 	  --enable  CONFIG_BTRFS_FS
-
-	# 4) Resolve any new deps introduced by the step above
 	$(MAKE) olddefconfig
 endef
-# ------------------------------------------------------------------------
+# ---------------------------------------------------
 
 %:
 	dh $@
@@ -60,26 +51,24 @@ override_dh_auto_build:
 	$(MAKE) Image.gz modules dtbs
 
 override_dh_auto_install:
-	# finding kernel release string from the built tree
+	# Figure out kernel release string from the built tree (reliable)
 	KREL="$$(make -s kernelrelease)"; \
 	\
-	# 1) headers into /usr/src/linux-headers-<krel>
+	# 1) Headers into /usr/src/linux-headers-<krel> (no /usr/include -> no clash with linux-libc-dev)
 	$(MAKE) headers_install \
 	  INSTALL_HDR_PATH=$(CURDIR)/debian/linux-headers-pine64/usr/src/linux-headers-$$KREL; \
 	\
-	# 2) modules into linux-image-pine64
+	# 2) Modules into linux-image-pine64
 	$(MAKE) modules_install INSTALL_MOD_PATH=$(CURDIR)/debian/linux-image-pine64; \
 	\
-	# 3) kernel image in /boot
+	# 3) Kernel image (versioned) under /boot inside the package payload
 	install -d $(CURDIR)/debian/linux-image-pine64/boot; \
 	install -m 0644 arch/arm64/boot/Image.gz \
 	  $(CURDIR)/debian/linux-image-pine64/boot/Image-$$KREL.gz; \
 	\
-	# also config and System.map with versions
-	[ -f .config ] && install -m 0644 .config \
-	  $(CURDIR)/debian/linux-image-pine64/boot/config-$$KREL || true; \
-	[ -f System.map ] && install -m 0644 System.map \
-	  $(CURDIR)/debian/linux-image-pine64/boot/System.map-$$KREL || true; \
+	# (optional) also ship config and System.map versioned if present
+	[ -f .config ]    && install -m 0644 .config    $(CURDIR)/debian/linux-image-pine64/boot/config-$$KREL || true; \
+	[ -f System.map ] && install -m 0644 System.map $(CURDIR)/debian/linux-image-pine64/boot/System.map-$$KREL || true; \
 	\
 	# 4) DTBs staged under /usr/lib/linux-image-pine64/allwinner
 	install -d $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner; \
@@ -88,13 +77,12 @@ override_dh_auto_install:
 	    $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner/; \
 	done
 
-
 override_dh_strip:
-	# dbg package behavior as-is; no automatic dbgsym
-	dh_strip --no-automatic-dbgsym
+	# Headers include thin archives & helper blobs: don't strip that package
+	dh_strip -Nlinux-headers-pine64 --no-automatic-dbgsym
 
 override_dh_shlibdeps:
-	# kernel image packages don't need shlibdeps
+	# Kernel image packages don't need shlibdeps
 	true
 
 override_dh_builddeb:

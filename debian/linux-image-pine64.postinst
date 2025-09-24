@@ -2,27 +2,37 @@
 set -e
 export INITRD=No
 
+# Make /boot/Image.gz point to the versioned image we ship,
+# copy DTBs into /boot/allwinner, and run depmod.
 case "$1" in
   configure)
-    # newest modules dir = version we just installed
-    version="$(ls -1 /lib/modules | sort -V | tail -n1)"
+    # Prefer querying the package's own version; fallback to newest /lib/modules
+    version="$(dpkg-query -W -f='${Version}' linux-image-pine64 2>/dev/null || true)"
+    if [ -z "$version" ]; then
+      version="$(ls -1 /lib/modules | sort -V | tail -n1)"
+    fi
 
     mkdir -p /boot /boot/allwinner
 
+    # Create/refresh the Image.gz symlink
     if [ -f "/boot/Image-${version}.gz" ]; then
       ln -sf "Image-${version}.gz" /boot/Image.gz
-    elif [ -f /boot/Image-.gz ]; then # our previous bug handling
+    elif [ -f /boot/Image-.gz ]; then
+      # very old builds had this name; keep it bootable
       ln -sf Image-.gz /boot/Image.gz
     fi
 
+    # Copy DTBs from package payload
     if [ -d /usr/lib/linux-image-pine64/allwinner ]; then
       cp -f /usr/lib/linux-image-pine64/allwinner/*.dtb /boot/allwinner/ 2>/dev/null || true
     fi
 
-    depmod "$version" || true
+    # Update module deps
+    if [ -n "$version" ]; then
+      depmod "$version" || true
+    fi
     ;;
 esac
 
 #DEBHELPER#
 exit 0
-
