@@ -4,12 +4,16 @@ export INITRD=No
 
 case "$1" in
   configure)
+    echo "Configuring linux-image-pine64..."
+    
     # Try to read kernel release from the file we stored during build
     if [ -f /usr/lib/linux-image-pine64/kernel-release ]; then
       krel="$(cat /usr/lib/linux-image-pine64/kernel-release)"
+      echo "Found kernel release: ${krel}"
     else
       # Fallback: find the newest kernel in /lib/modules
       krel="$(ls -1 /lib/modules 2>/dev/null | sort -V | tail -n1)"
+      echo "Detected kernel release from modules: ${krel}"
     fi
     
     if [ -z "$krel" ]; then
@@ -19,22 +23,34 @@ case "$1" in
         if [ -f "$img" ]; then
           krel="${img#/boot/Image-}"
           krel="${krel%.gz}"
+          echo "Detected kernel release from image: ${krel}"
           break
         fi
       done
     fi
     
+    # Ensure directories exist
     mkdir -p /boot /boot/allwinner
     
     # Create symlink for u-boot (PinePhone bootloader expects /boot/Image.gz)
     if [ -n "$krel" ] && [ -f "/boot/Image-${krel}.gz" ]; then
       echo "Creating symlink: /boot/Image.gz -> Image-${krel}.gz"
       ln -sf "Image-${krel}.gz" /boot/Image.gz
+      
+      # Verify symlink was created
+      if [ -L /boot/Image.gz ]; then
+        echo "Symlink created successfully"
+        ls -la /boot/Image.gz
+      else
+        echo "ERROR: Failed to create symlink!" >&2
+        exit 1
+      fi
     else
-      echo "Warning: Could not find versioned kernel image" >&2
+      echo "Warning: Could not find /boot/Image-${krel}.gz" >&2
       # Last resort: link to any Image-*.gz file
       for img in /boot/Image-*.gz; do
         if [ -f "$img" ]; then
+          echo "Linking to $(basename "$img")"
           ln -sf "$(basename "$img")" /boot/Image.gz
           break
         fi
@@ -43,14 +59,31 @@ case "$1" in
     
     # Copy DTBs from package payload to /boot/allwinner
     if [ -d /usr/lib/linux-image-pine64/allwinner ]; then
-      cp -f /usr/lib/linux-image-pine64/allwinner/*.dtb /boot/allwinner/ 2>/dev/null || true
+      echo "Copying device tree files to /boot/allwinner/..."
+      cp -fv /usr/lib/linux-image-pine64/allwinner/*.dtb /boot/allwinner/ 2>&1 || {
+        echo "Warning: Failed to copy some DTB files" >&2
+      }
+      
+      # List copied DTBs for verification
+      echo "Device tree files in /boot/allwinner/:"
+      ls -la /boot/allwinner/*.dtb 2>/dev/null || echo "No DTB files found!"
+    else
+      echo "ERROR: DTB source directory not found!" >&2
+      echo "Expected: /usr/lib/linux-image-pine64/allwinner/" >&2
+      exit 1
     fi
     
     # Update module dependencies
     if [ -n "$krel" ] && [ -d "/lib/modules/$krel" ]; then
-      echo "Running depmod for kernel ${krel}"
+      echo "Running depmod for kernel ${krel}..."
       depmod "$krel" || true
     fi
+    
+    echo "Configuration complete. Boot files:"
+    ls -la /boot/Image* /boot/config* /boot/System.map* 2>/dev/null || true
+    echo ""
+    echo "DTB files:"
+    ls -la /boot/allwinner/*.dtb 2>/dev/null || true
     ;;
 esac
 
