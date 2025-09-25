@@ -20,9 +20,14 @@ ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_TARGET_MULTIARCH))
   export CROSS_COMPILE=$(DEB_TARGET_MULTIARCH)-
 endif
 
-# --- Kconfig customization ---
-define apply-kconfig
-	$(MAKE) defconfig
+%:
+	dh $@
+
+override_dh_auto_configure:
+	# Use your known-good config as the base
+	cp -v $(CURDIR)/debian/config_inky .config
+	$(MAKE) olddefconfig
+	# Force critical boot/display options
 	./scripts/config --file .config \
 	  --enable CONFIG_DEVTMPFS \
 	  --enable CONFIG_DEVTMPFS_MOUNT \
@@ -45,15 +50,10 @@ define apply-kconfig
 	  --enable CONFIG_TYPEC_ANX7688 \
 	  --enable CONFIG_INPUT_AXP20X_PEK \
 	  --enable CONFIG_CHARGER_AXP20X_BATTERY \
-	  --enable CONFIG_BATTERY_AXP20X
+	  --enable CONFIG_BATTERY_AXP20X \
+	  --enable CONFIG_BACKLIGHT_PWM \
+	  --enable CONFIG_DRM_PANEL_HIMAX_HX8369
 	$(MAKE) olddefconfig
-endef
-
-%:
-	dh $@
-
-override_dh_auto_configure:
-	$(call apply-kconfig)
 
 override_dh_auto_build:
 	$(MAKE) Image.gz modules dtbs
@@ -107,4 +107,3 @@ override_dh_builddeb:
 clean:
 	dh_clean
 	$(MAKE) clean
-
