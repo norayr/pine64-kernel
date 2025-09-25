@@ -2,37 +2,58 @@
 set -e
 export INITRD=No
 
-# Make /boot/Image.gz point to the versioned image we ship,
-# copy DTBs into /boot/allwinner, and run depmod.
 case "$1" in
   configure)
-    # Prefer querying the package's own version; fallback to newest /lib/modules
-    version="$(dpkg-query -W -f='${Version}' linux-image-pine64 2>/dev/null || true)"
-    if [ -z "$version" ]; then
-      version="$(ls -1 /lib/modules | sort -V | tail -n1)"
+    # Try to read kernel release from the file we stored during build
+    if [ -f /usr/lib/linux-image-pine64/kernel-release ]; then
+      krel="$(cat /usr/lib/linux-image-pine64/kernel-release)"
+    else
+      # Fallback: find the newest kernel in /lib/modules
+      krel="$(ls -1 /lib/modules 2>/dev/null | sort -V | tail -n1)"
     fi
-
+    
+    if [ -z "$krel" ]; then
+      echo "Warning: Could not determine kernel release" >&2
+      # Try to find any Image-*.gz file
+      for img in /boot/Image-*.gz; do
+        if [ -f "$img" ]; then
+          krel="${img#/boot/Image-}"
+          krel="${krel%.gz}"
+          break
+        fi
+      done
+    fi
+    
     mkdir -p /boot /boot/allwinner
-
-    # Create/refresh the Image.gz symlink
-    if [ -f "/boot/Image-${version}.gz" ]; then
-      ln -sf "Image-${version}.gz" /boot/Image.gz
-    elif [ -f /boot/Image-.gz ]; then
-      # very old builds had this name; keep it bootable
-      ln -sf Image-.gz /boot/Image.gz
+    
+    # Create symlink for u-boot (PinePhone bootloader expects /boot/Image.gz)
+    if [ -n "$krel" ] && [ -f "/boot/Image-${krel}.gz" ]; then
+      echo "Creating symlink: /boot/Image.gz -> Image-${krel}.gz"
+      ln -sf "Image-${krel}.gz" /boot/Image.gz
+    else
+      echo "Warning: Could not find versioned kernel image" >&2
+      # Last resort: link to any Image-*.gz file
+      for img in /boot/Image-*.gz; do
+        if [ -f "$img" ]; then
+          ln -sf "$(basename "$img")" /boot/Image.gz
+          break
+        fi
+      done
     fi
-
-    # Copy DTBs from package payload
+    
+    # Copy DTBs from package payload to /boot/allwinner
     if [ -d /usr/lib/linux-image-pine64/allwinner ]; then
       cp -f /usr/lib/linux-image-pine64/allwinner/*.dtb /boot/allwinner/ 2>/dev/null || true
     fi
-
-    # Update module deps
-    if [ -n "$version" ]; then
-      depmod "$version" || true
+    
+    # Update module dependencies
+    if [ -n "$krel" ] && [ -d "/lib/modules/$krel" ]; then
+      echo "Running depmod for kernel ${krel}"
+      depmod "$krel" || true
     fi
     ;;
 esac
 
 #DEBHELPER#
 exit 0
+

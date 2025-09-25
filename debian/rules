@@ -1,8 +1,6 @@
 #!/usr/bin/make -f
-
 export DH_VERBOSE=1
 export ARCH=arm64
-
 DEV    = pinephone
 DTB    = \
   allwinner/sun50i-a64-pinephone-1.0.dtb \
@@ -22,23 +20,34 @@ ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_TARGET_MULTIARCH))
   export CROSS_COMPILE=$(DEB_TARGET_MULTIARCH)-
 endif
 
-# --- Kconfig customization (replaces 0172 patch) ---
+# --- Kconfig customization ---
 define apply-kconfig
 	$(MAKE) defconfig
 	./scripts/config --file .config \
-	  --enable  CONFIG_MTD \
-	  --enable  CONFIG_MTD_DATAFLASH \
-	  --enable  CONFIG_MTD_SST25L \
-	  --enable  CONFIG_MTD_ONENAND \
-	  --enable  CONFIG_USB_MUSB_SUNXI \
-	  --enable  CONFIG_NOP_USB_XCEIV \
-	  --enable  CONFIG_USB_GADGET \
-	  --enable  CONFIG_USB_CONFIGFS \
-	  --enable  CONFIG_EXT4_FS \
-	  --enable  CONFIG_BTRFS_FS
+	  --enable CONFIG_DEVTMPFS \
+	  --enable CONFIG_DEVTMPFS_MOUNT \
+	  --enable CONFIG_MMC \
+	  --enable CONFIG_MMC_BLOCK \
+	  --enable CONFIG_MMC_SUNXI \
+	  --enable CONFIG_EXT4_FS \
+	  --enable CONFIG_DRM \
+	  --enable CONFIG_DRM_KMS_HELPER \
+	  --enable CONFIG_DRM_SIMPLEDRM \
+	  --enable CONFIG_FRAMEBUFFER_CONSOLE \
+	  --enable CONFIG_DRM_SUN4I \
+	  --enable CONFIG_DRM_SUN6I_DSI \
+	  --enable CONFIG_DRM_PANEL_SITRONIX_ST7703 \
+	  --enable CONFIG_DRM_PANEL_SIMPLE \
+	  --enable CONFIG_DRM_SIMPLE_BRIDGE \
+	  --enable CONFIG_BTRFS_FS \
+	  --enable CONFIG_USB_CONFIGFS_F_FS \
+	  --enable CONFIG_TYPEC \
+	  --enable CONFIG_TYPEC_ANX7688 \
+	  --enable CONFIG_INPUT_AXP20X_PEK \
+	  --enable CONFIG_CHARGER_AXP20X_BATTERY \
+	  --enable CONFIG_BATTERY_AXP20X
 	$(MAKE) olddefconfig
 endef
-# ---------------------------------------------------
 
 %:
 	dh $@
@@ -47,42 +56,49 @@ override_dh_auto_configure:
 	$(call apply-kconfig)
 
 override_dh_auto_build:
-	# Kernel already configured; build image, modules, and DTBs
 	$(MAKE) Image.gz modules dtbs
 
 override_dh_auto_install:
-	# Figure out kernel release string from the built tree (reliable)
-	KREL="$$(make -s kernelrelease)"; \
-	\
-	# 1) Headers into /usr/src/linux-headers-<krel> (no /usr/include -> no clash with linux-libc-dev)
+	# Get kernel release using make eval (this works properly in Makefile context)
+	$(eval KREL := $(shell cat include/config/kernel.release 2>/dev/null || echo "unknown"))
+	@echo "Kernel release: $(KREL)"
+	@if [ "$(KREL)" = "unknown" ]; then \
+		echo "ERROR: Failed to determine kernel release" >&2; \
+		exit 1; \
+	fi
+	
+	# 1) Headers into /usr/src/linux-headers-<krel>
 	$(MAKE) headers_install \
-	  INSTALL_HDR_PATH=$(CURDIR)/debian/linux-headers-pine64/usr/src/linux-headers-$$KREL; \
-	\
+	  INSTALL_HDR_PATH=$(CURDIR)/debian/linux-headers-pine64/usr/src/linux-headers-$(KREL)
+	
 	# 2) Modules into linux-image-pine64
-	$(MAKE) modules_install INSTALL_MOD_PATH=$(CURDIR)/debian/linux-image-pine64; \
-	\
-	# 3) Kernel image (versioned) under /boot inside the package payload
-	install -d $(CURDIR)/debian/linux-image-pine64/boot; \
+	$(MAKE) modules_install INSTALL_MOD_PATH=$(CURDIR)/debian/linux-image-pine64
+	
+	# 3) Kernel image (versioned) under /boot
+	install -d $(CURDIR)/debian/linux-image-pine64/boot
 	install -m 0644 arch/arm64/boot/Image.gz \
-	  $(CURDIR)/debian/linux-image-pine64/boot/Image-$$KREL.gz; \
-	\
-	# (optional) also ship config and System.map versioned if present
-	[ -f .config ]    && install -m 0644 .config    $(CURDIR)/debian/linux-image-pine64/boot/config-$$KREL || true; \
-	[ -f System.map ] && install -m 0644 System.map $(CURDIR)/debian/linux-image-pine64/boot/System.map-$$KREL || true; \
-	\
+	  $(CURDIR)/debian/linux-image-pine64/boot/Image-$(KREL).gz
+	
+	# Also ship config and System.map versioned
+	[ -f .config ] && install -m 0644 .config \
+	  $(CURDIR)/debian/linux-image-pine64/boot/config-$(KREL) || true
+	[ -f System.map ] && install -m 0644 System.map \
+	  $(CURDIR)/debian/linux-image-pine64/boot/System.map-$(KREL) || true
+	
 	# 4) DTBs staged under /usr/lib/linux-image-pine64/allwinner
-	install -d $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner; \
+	install -d $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner
 	for d in $(DTB); do \
 	  install -m 0644 arch/arm64/boot/dts/$$d \
 	    $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner/; \
 	done
+	
+	# 5) Store kernel release for postinst to use
+	echo "$(KREL)" > $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/kernel-release
 
 override_dh_strip:
-	# Headers include thin archives & helper blobs: don't strip that package
 	dh_strip -Nlinux-headers-pine64 --no-automatic-dbgsym
 
 override_dh_shlibdeps:
-	# Kernel image packages don't need shlibdeps
 	true
 
 override_dh_builddeb:
@@ -91,3 +107,4 @@ override_dh_builddeb:
 clean:
 	dh_clean
 	$(MAKE) clean
+
