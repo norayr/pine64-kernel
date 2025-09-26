@@ -1,0 +1,4 @@
+linux-headers-pine64_6.12.29-1_arm64.deb pinephone optional
+linux-image-pine64-dbg_6.12.29-1_arm64.deb pinephone optional
+linux-image-pine64_6.12.29-1_arm64.deb pinephone optional
+pine64-linux_6.12.29-1_arm64.buildinfo pinephone optional

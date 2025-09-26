@@ -24,10 +24,9 @@ endif
 	dh $@
 
 override_dh_auto_configure:
-	# Use your known-good config as the base
+	# Seed from your known-good config, normalize, and force SD-root/display essentials
 	cp -v $(CURDIR)/debian/config_inky .config
 	$(MAKE) olddefconfig
-	# Force critical boot/display options
 	./scripts/config --file .config \
 	  --enable CONFIG_DEVTMPFS \
 	  --enable CONFIG_DEVTMPFS_MOUNT \
@@ -44,22 +43,15 @@ override_dh_auto_configure:
 	  --enable CONFIG_DRM_PANEL_SITRONIX_ST7703 \
 	  --enable CONFIG_DRM_PANEL_SIMPLE \
 	  --enable CONFIG_DRM_SIMPLE_BRIDGE \
-	  --enable CONFIG_BTRFS_FS \
-	  --enable CONFIG_USB_CONFIGFS_F_FS \
-	  --enable CONFIG_TYPEC \
-	  --enable CONFIG_TYPEC_ANX7688 \
-	  --enable CONFIG_INPUT_AXP20X_PEK \
-	  --enable CONFIG_CHARGER_AXP20X_BATTERY \
-	  --enable CONFIG_BATTERY_AXP20X \
-	  --enable CONFIG_BACKLIGHT_PWM \
-	  --enable CONFIG_DRM_PANEL_HIMAX_HX8369
+	  --enable CONFIG_BTRFS_FS
 	$(MAKE) olddefconfig
 
 override_dh_auto_build:
+	# Build in place
 	$(MAKE) Image.gz modules dtbs
 
 override_dh_auto_install:
-	# Get kernel release using make eval (this works properly in Makefile context)
+	# Get kernel release - fixed version that works properly
 	$(eval KREL := $(shell cat include/config/kernel.release 2>/dev/null || echo "unknown"))
 	@echo "Kernel release: $(KREL)"
 	@if [ "$(KREL)" = "unknown" ]; then \
@@ -67,38 +59,42 @@ override_dh_auto_install:
 		exit 1; \
 	fi
 	
-	# 1) Headers into /usr/src/linux-headers-<krel>
+	# 1) Simple headers install (avoiding rsync issues)
 	$(MAKE) headers_install \
 	  INSTALL_HDR_PATH=$(CURDIR)/debian/linux-headers-pine64/usr/src/linux-headers-$(KREL)
 	
-	# 2) Modules into linux-image-pine64
+	# 2) Kernel modules into image pkg
 	$(MAKE) modules_install INSTALL_MOD_PATH=$(CURDIR)/debian/linux-image-pine64
 	
-	# 3) Kernel image (versioned) under /boot
+	# Remove the build symlink (we'll recreate it if headers package is installed)
+	rm -f $(CURDIR)/debian/linux-image-pine64/lib/modules/$(KREL)/build
+	rm -f $(CURDIR)/debian/linux-image-pine64/lib/modules/$(KREL)/source
+	
+	# 3) Kernel image + metadata (versioned; postinst will symlink Image.gz)
 	install -d $(CURDIR)/debian/linux-image-pine64/boot
 	install -m 0644 arch/arm64/boot/Image.gz \
 	  $(CURDIR)/debian/linux-image-pine64/boot/Image-$(KREL).gz
-	
-	# Also ship config and System.map versioned
-	[ -f .config ] && install -m 0644 .config \
-	  $(CURDIR)/debian/linux-image-pine64/boot/config-$(KREL) || true
+	install -m 0644 .config \
+	  $(CURDIR)/debian/linux-image-pine64/boot/config-$(KREL)
 	[ -f System.map ] && install -m 0644 System.map \
 	  $(CURDIR)/debian/linux-image-pine64/boot/System.map-$(KREL) || true
 	
-	# 4) DTBs staged under /usr/lib/linux-image-pine64/allwinner
+	# 4) DTBs (postinst copies to /boot/allwinner on target)
 	install -d $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner
 	for d in $(DTB); do \
 	  install -m 0644 arch/arm64/boot/dts/$$d \
 	    $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/allwinner/; \
 	done
 	
-	# 5) Store kernel release for postinst to use
+	# 5) Store kernel release for postinst
 	echo "$(KREL)" > $(CURDIR)/debian/linux-image-pine64/usr/lib/linux-image-pine64/kernel-release
 
 override_dh_strip:
+	# Don't strip the headers package - it has special files
 	dh_strip -Nlinux-headers-pine64 --no-automatic-dbgsym
 
 override_dh_shlibdeps:
+	# Kernel packages don't need shared library dependencies
 	true
 
 override_dh_builddeb:
@@ -106,4 +102,11 @@ override_dh_builddeb:
 
 clean:
 	dh_clean
-	$(MAKE) clean
+	@if [ -n "$$FORCE_CLEAN" ]; then \
+	  $(MAKE) clean; \
+	else \
+	  echo "Skipping 'make clean' (set FORCE_CLEAN=1 to force)"; \
+	fi
+
+
+
