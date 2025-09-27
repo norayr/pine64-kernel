@@ -43,6 +43,9 @@ override_dh_auto_configure:
 	  --enable CONFIG_DRM_PANEL_SITRONIX_ST7703 \
 	  --enable CONFIG_DRM_PANEL_SIMPLE \
 	  --enable CONFIG_DRM_SIMPLE_BRIDGE \
+    --enable CONFIG_SND_VERBOSE_PRINTK \
+    --enable CONFIG_SND_SOC_EC25 \
+    --enable CONFIG_SND_SUN4I_CODEC \
 	  --enable CONFIG_BTRFS_FS
 	$(MAKE) olddefconfig
 
